@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+pydantic
+httpx
+pytest
+pytest-asyncio
+jsonschema
+fastmcp
+GitPython
