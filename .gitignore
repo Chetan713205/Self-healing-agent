@@ -50,6 +50,11 @@ htmlcov/
 .hypothesis/
 
 # ===========================
+# Demo failure worktrees
+# ===========================
+.worktrees/
+
+# ===========================
 # MCP Server
 # ===========================
 # MCP config with secrets

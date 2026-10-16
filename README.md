@@ -107,3 +107,24 @@ python -m pytest
 The unit tests cover the business services. Integration tests exercise the API,
 validate responses against their JSON Schema contracts, and check the OpenAPI
 endpoint definitions.
+
+### Inject a controlled failure (demo only)
+
+Do not apply these defects on `main`. The injector creates a disposable Git
+worktree and a `demo/failure-*` branch:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\inject_bug.py --list
+.\.venv\Scripts\python.exe scripts\inject_bug.py A
+cd .worktrees\scenario-a
+..\..\.venv\Scripts\python.exe -m pytest
+```
+
+| Scenario | Injected defect | Expected detection |
+| -------- | --------------- | ------------------ |
+| A | Order response field `total` renamed to `amount` | Contract violation |
+| B | Order totals silently reduced by 10% | Incorrect invoice values / failed business assertions |
+| C | Shared invoice totals omit tax | Downstream revenue-report regression |
+
+Restore the workspace with `python scripts/inject_bug.py --cleanup A` or
+`--cleanup-all`. Details live in `scenarios/README.md`.
