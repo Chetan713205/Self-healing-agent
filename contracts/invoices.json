@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "InvoiceResponse",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "order_id", "amount", "tax", "total", "status"],
+  "properties": {
+    "id": { "type": "string", "examples": ["INV-101"] },
+    "order_id": { "type": "integer", "examples": [101] },
+    "amount": { "type": "number", "minimum": 0, "examples": [499.0] },
+    "tax": { "type": "number", "minimum": 0, "examples": [49.9] },
+    "total": { "type": "number", "minimum": 0, "examples": [548.9] },
+    "status": { "type": "string", "examples": ["issued"] }
+  }
+}

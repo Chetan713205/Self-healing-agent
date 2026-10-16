@@ -432,52 +432,26 @@ Treat these as future extensions, not requirements for your first demo. You can 
 
 Follow this sequence and do not jump ahead:
 
-1
+1 Install and authenticate Cursor CLI
 
-Install and authenticate Cursor CLI
+2 Build the sample FastAPI application
 
-2
+3 Create contracts and baseline tests
 
-Build the sample FastAPI application
+4 Implement reproducible failure scenarios
 
-3
+5 Build and test the MCP server
 
-Create contracts and baseline tests
+6 Connect MCP to Cursor CLI
 
-4
+7 Implement impact-based test selection
 
-Implement reproducible failure scenarios
+8 Enable isolated code repair
 
-5
+9 Add independent verification and bounded retries
 
-Build and test the MCP server
+10 Add reporting and human approval
 
-6
+11 Automate the three demo scenarios
 
-Connect MCP to Cursor CLI
-
-7
-
-Implement impact-based test selection
-
-8
-
-Enable isolated code repair
-
-9
-
-Add independent verification and bounded retries
-
-10
-
-Add reporting and human approval
-
-11
-
-Automate the three demo scenarios
-
-12
-
-Measure results and prepare the presentation
-
-My advice: build the smallest complete vertical slice first: inject one bug, detect it through MCP, repair it with Cursor CLI, verify it through tests, and generate a report. Once that works end to end, add impact analysis and the other failure scenarios. This will give you something demonstrable early, while keeping the architecture aligned with your manager's expectations.
+12 Measure results and prepare the presentation

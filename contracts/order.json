@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OrderResponse",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "total", "status"],
+  "properties": {
+    "id": { "type": "integer", "examples": [101] },
+    "total": { "type": "number", "minimum": 0, "examples": [499.0] },
+    "status": { "type": "string", "examples": ["shipped"] }
+  }
+}

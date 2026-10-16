@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RevenueReportResponse",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["invoice_count", "total_revenue"],
+  "properties": {
+    "invoice_count": { "type": "integer", "minimum": 0, "examples": [2] },
+    "total_revenue": { "type": "number", "minimum": 0, "examples": [823.9] }
+  }
+}

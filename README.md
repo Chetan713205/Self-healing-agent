@@ -72,3 +72,38 @@ If this makes sense, I can scaffold the starter project (the sample FastAPI app,
 8. When everything passes, agent calls submit_fix_report()
 9. MCP saves the report (root cause, diff, test evidence) to a file
 10. Human reviews the report and approves the merge
+
+## Phase 2: sample API
+
+The repository includes a small FastAPI application with three connected business
+functions. Orders are the source of truth for order totals, invoice calculations
+derive amount, tax, and total from those orders, and the revenue report aggregates
+the issued invoice totals.
+
+### Start the API
+
+From the repository root, install the dependencies and start the development server:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+python -m uvicorn app.main:app --reload
+```
+
+Open `http://127.0.0.1:8000/docs` for interactive API documentation or
+`http://127.0.0.1:8000/openapi.json` for the generated OpenAPI document. Sample
+endpoints include `POST /orders`, `GET /orders/101`, `GET /invoices/INV-101`, and
+`GET /reports/revenue`. Machine-readable response contracts live in `contracts/`.
+
+### Run baseline tests
+
+In another terminal, activate the virtual environment and run:
+
+```powershell
+python -m pytest
+```
+
+The unit tests cover the business services. Integration tests exercise the API,
+validate responses against their JSON Schema contracts, and check the OpenAPI
+endpoint definitions.
