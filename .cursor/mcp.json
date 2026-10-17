@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "self-healing-guardian": {
+      "type": "stdio",
+      "command": "C:\\Users\\KITS\\Desktop\\self-healing-agent\\.venv\\Scripts\\python.exe",
+      "args": ["-m", "mcp_server"],
+      "env": {
+        "PYTHONPATH": "C:\\Users\\KITS\\Desktop\\self-healing-agent",
+        "PYTHONUNBUFFERED": "1"
+      }
+    }
+  }
+}
