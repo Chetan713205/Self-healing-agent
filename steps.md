@@ -186,7 +186,6 @@ Ask Cursor to organize the project into separate responsibilities:
 - `app/` — the FastAPI application and business logic.
 - `contracts/` — the expected API schemas.
 - `tests/` — unit, contract, and integration tests.
-- `guardian/` — impact analysis, repair orchestration, and verification logic.
 - `mcp_server/` — the MCP server and tool implementations.
 - `reports/` — generated diagnostic and repair reports.
 - `.cursor/` — Cursor project configuration.
@@ -240,7 +239,6 @@ Then:
 Useful CLI commands, depending on your installed executable, include:
 
 - `agent mcp list`
-- `agent mcp list-tools guardian`
 
 If the server does not connect, inspect the MCP logs and verify the Python environment and server path.
 

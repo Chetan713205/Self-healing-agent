@@ -61,3 +61,7 @@ htmlcov/
 .mcp/
 mcp-config.json
 *.mcp.log
+
+# Generated diagnostic and repair reports
+reports/*
+!reports/.gitkeep

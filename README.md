@@ -66,7 +66,7 @@ If this makes sense, I can scaffold the starter project (the sample FastAPI app,
 4. MCP probes the live API, compares it to the contract, returns what is broken
 5. Agent calls get_recent_changes() to see which commit caused it
 6. Agent reads and edits the code to fix the root cause
-7. Agent calls run_tests(); MCP runs the tests and the probe again
+7. Agent calls run_targeted_tests(), then run_full_tests(); MCP runs pytest and the probe again
       - if they fail, the agent retries (MCP allows 3 attempts)
       - after 3 failures, MCP reverts the change and escalates to a human
 8. When everything passes, agent calls submit_fix_report()
@@ -128,3 +128,42 @@ cd .worktrees\scenario-a
 
 Restore the workspace with `python scripts/inject_bug.py --cleanup A` or
 `--cleanup-all`. Details live in `scenarios/README.md`.
+
+## Phase 3: MCP server
+
+The MCP server is separate from the FastAPI application. Cursor Agent reasons
+and edits code. This server only returns evidence: live schema checks, Git
+diffs, an import-graph impact map, pytest results, and a saved repair report.
+
+Copy `mcp_server/` into another FastAPI repository and it discovers that
+app. It reads route declarations and imports from the code, so it does not
+need a handwritten endpoint table. JSON files in `contracts/` are optional:
+a file is used when its `title` matches a response schema. Otherwise the
+OpenAPI response schema is the contract. Path parameters are filled from
+schema examples; a route with no example is reported as skipped.
+
+| Tool | Responsibility |
+| --- | --- |
+| `check_api_health` | Call the local API and compare each probe with its contract |
+| `get_contract_violations` | Return missing fields, unexpected fields, wrong types, and schema mismatches |
+| `get_recent_changes` | Return recent commits, the latest diff, and any uncommitted diff |
+| `analyze_impact` | Map changed files to affected endpoints and tests |
+| `run_targeted_tests` | Run the node ids selected by impact analysis |
+| `run_full_tests` | Run the unit and integration suites |
+| `get_failure_evidence` | Collect failing tests, contract violations, and the latest change |
+| `submit_fix_report` | Save the diagnosis, patch summary, and verification evidence under `reports/` |
+
+`analyze_impact` follows imports. A module that imports changed code is
+downstream, and so are the routes and tests that reference it. That chooses
+which tests to run first; `run_full_tests` is still required before a repair
+is accepted.
+
+Start the API in one terminal, then the checks can reach `http://127.0.0.1:8000`.
+The server process itself is:
+
+```powershell
+.\.venv\Scripts\python.exe -m mcp_server
+```
+
+That command speaks MCP over stdin/stdout and writes logs to stderr. Connecting
+it to Cursor is the next step (`.cursor/mcp.json`).
