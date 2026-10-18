@@ -151,12 +151,14 @@ schema examples; a route with no example is reported as skipped.
 | `run_targeted_tests` | Run the node ids selected by impact analysis |
 | `run_full_tests` | Run the unit and integration suites |
 | `get_failure_evidence` | Collect failing tests, contract violations, and the latest change |
-| `submit_fix_report` | Save the diagnosis, patch summary, and verification evidence under `reports/` |
+| `verify_repair` | Run contract probes, targeted tests, then the full suite, and set `accepted` |
+| `submit_fix_report` | Save the diagnosis and patch summary. The status comes from `verify_repair` |
 
 `analyze_impact` follows imports. A module that imports changed code is
 downstream, and so are the routes and tests that reference it. That chooses
-which tests to run first; `run_full_tests` is still required before a repair
-is accepted.
+which tests to run first. `verify_repair` still runs the full suite, and a
+repair is `pending_approval` only when the contract checks and both test
+runs pass. Text supplied by the agent is stored as notes, not as the verdict.
 
 Start the API in one terminal, then the checks can reach `http://127.0.0.1:8000`.
 The server process itself is:
@@ -165,5 +167,6 @@ The server process itself is:
 .\.venv\Scripts\python.exe -m mcp_server
 ```
 
-That command speaks MCP over stdin/stdout and writes logs to stderr. Connecting
-it to Cursor is the next step (`.cursor/mcp.json`).
+That command speaks MCP over stdin/stdout and writes logs to stderr. Cursor
+loads it from `.cursor/mcp.json`. A project rule tells the agent to diagnose
+with these tools and to treat `verify_repair` as the pass/fail verdict.

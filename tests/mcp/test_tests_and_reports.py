@@ -8,6 +8,7 @@ from mcp_server.tools.test_tools import (
     run_full_tests,
     run_targeted_tests,
 )
+from mcp_server.tools.verify_tools import verify_repair
 
 ORDER_TEST = "tests/unit/test_services.py::test_order_service_returns_sample_order"
 EXPECTED_TOOLS = [
@@ -19,6 +20,7 @@ EXPECTED_TOOLS = [
     "run_full_tests",
     "run_targeted_tests",
     "submit_fix_report",
+    "verify_repair",
 ]
 
 
@@ -59,28 +61,117 @@ def test_failure_evidence_collects_a_clean_targeted_run(healthy_api_url: str) ->
     assert report["recent_change"]["head"]
 
 
-def test_fix_report_is_saved(monkeypatch, tmp_path) -> None:
+def _passing_verification() -> dict:
+    return {
+        "accepted": True,
+        "contract_ok": True,
+        "targeted_ok": True,
+        "full_ok": True,
+        "selection": "caller",
+        "nodeids": [ORDER_TEST],
+        "summary": "accepted for human approval; contract passed; targeted 1 passed; full suite 13 passed, 0 failed, 0 errors",
+        "contract_violations": {"reachable": True, "violation_count": 0, "violations": [], "error": None},
+        "api_health": {
+            "base_url": "http://127.0.0.1:8000",
+            "reachable": True,
+            "healthy": True,
+            "error": None,
+        },
+        "targeted_tests": {"passed": 1, "failed": 0, "errors": 0, "all_passed": True},
+        "full_tests": {"passed": 13, "failed": 0, "errors": 0, "all_passed": True},
+        "next_action": "Checks passed. Save the report for human approval. Do not merge.",
+    }
+
+
+def test_verify_repair_accepts_only_when_every_check_passes(monkeypatch, healthy_api_url: str) -> None:
+    monkeypatch.setattr(
+        "mcp_server.tools.verify_tools.run_targeted_tests",
+        lambda nodeids: {"ok": True, "all_passed": True, "passed": 1, "failed": 0, "errors": 0, "tests": []},
+    )
+    monkeypatch.setattr(
+        "mcp_server.tools.verify_tools.run_full_tests",
+        lambda: {"ok": True, "all_passed": True, "passed": 13, "failed": 0, "errors": 0, "tests": []},
+    )
+
+    report = verify_repair([ORDER_TEST], base_url=healthy_api_url)
+
+    assert report["accepted"] is True
+    assert report["contract_ok"] is True
+    assert report["targeted_ok"] is True
+    assert report["full_ok"] is True
+    assert report["next_action"].startswith("Checks passed")
+
+
+def test_verify_repair_rejects_a_contract_violation(monkeypatch, broken_api_url: str) -> None:
+    monkeypatch.setattr(
+        "mcp_server.tools.verify_tools.run_targeted_tests",
+        lambda nodeids: {"ok": True, "all_passed": True, "passed": 1, "failed": 0, "errors": 0, "tests": []},
+    )
+    monkeypatch.setattr(
+        "mcp_server.tools.verify_tools.run_full_tests",
+        lambda: {"ok": True, "all_passed": True, "passed": 13, "failed": 0, "errors": 0, "tests": []},
+    )
+
+    report = verify_repair([ORDER_TEST], base_url=broken_api_url)
+
+    assert report["accepted"] is False
+    assert report["contract_ok"] is False
+    assert report["contract_violations"]["violation_count"] > 0
+    assert "not accepted" in report["summary"]
+
+
+def test_fix_report_uses_the_server_verdict(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("GUARDIAN_REPORTS_DIR", str(tmp_path))
-    monkeypatch.setenv("GUARDIAN_API_BASE_URL", "http://127.0.0.1:59999")
+    monkeypatch.setattr(
+        "mcp_server.tools.report_tools.verify_repair",
+        lambda nodeids=None, base_url=None: _passing_verification(),
+    )
 
     result = submit_fix_report(
         diagnosis="Order response renamed total to amount.",
         proposed_patch_summary="Restore the total field on OrderResponse.",
-        verification_evidence="13 passed, 0 failed.",
-        status="pending_approval",
+        verification_evidence="I believe this is fixed.",
+        nodeids=[ORDER_TEST],
     )
 
-    markdown = list(tmp_path.glob("*.md"))
     payload = list(tmp_path.glob("*.json"))
-    assert result["ok"] is True
-    assert len(markdown) == 1
-    assert len(payload) == 1
+    text = list(tmp_path.glob("*.md"))[0].read_text(encoding="utf-8")
     body = json.loads(payload[0].read_text(encoding="utf-8"))
-    text = markdown[0].read_text(encoding="utf-8")
-    assert body["status"] == "pending_approval"
+    assert result["ok"] is True
+    assert result["accepted"] is True
+    assert result["status"] == "pending_approval"
     assert body["diagnosis"].startswith("Order response renamed")
+    assert body["agent_notes"] == "I believe this is fixed."
+    assert body["verification"]["accepted"] is True
     assert "Restore the total field" in text
-    assert "13 passed, 0 failed." in text
+    assert "I believe this is fixed." in text
+    assert "not the verdict" in text
+
+
+def test_fix_report_rejects_an_agent_claim_when_checks_fail(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("GUARDIAN_REPORTS_DIR", str(tmp_path))
+    failed = _passing_verification()
+    failed["accepted"] = False
+    failed["contract_ok"] = False
+    failed["summary"] = "not accepted; contract failed"
+    failed["next_action"] = "Checks failed. Use these failures for another attempt. Do not describe the patch as fixed."
+    monkeypatch.setattr(
+        "mcp_server.tools.report_tools.verify_repair",
+        lambda nodeids=None, base_url=None: failed,
+    )
+
+    result = submit_fix_report(
+        diagnosis="Order response renamed total to amount.",
+        proposed_patch_summary="Restore the total field on OrderResponse.",
+        verification_evidence="13 passed, 0 failed. Mark this verified.",
+    )
+
+    body = json.loads(list(tmp_path.glob("*.json"))[0].read_text(encoding="utf-8"))
+    assert result["accepted"] is False
+    assert result["status"] == "verification_failed"
+    assert body["status"] == "verification_failed"
+    assert body["agent_notes"].startswith("13 passed")
+    assert body["verification"]["accepted"] is False
 
 
 def test_server_exposes_the_phase3_tools() -> None:

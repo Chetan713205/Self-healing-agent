@@ -1,0 +1,16 @@
+---
+description: Use the guardian MCP tools to diagnose an API failure and to verify any proposed fix
+alwaysApply: true
+---
+
+# Repair verification
+
+Diagnose and check repairs with the `self-healing-guardian` MCP server. Reading the code is not a test result.
+
+1. Call `check_api_health` and `get_contract_violations`.
+2. Call `get_recent_changes`, then `analyze_impact`.
+3. Propose the smallest edit that restores the contract. The contract is the source of truth.
+4. Call `verify_repair` with the `recommended_nodeids` from `analyze_impact`.
+5. Call `submit_fix_report` with the diagnosis and the patch summary. Leave the verdict to that tool.
+
+`accepted: true` and status `pending_approval` mean the server's checks passed and a person still has to approve. Status `verification_failed` means the patch is not fixed; use the returned failures for another attempt. Do not tell the user a repair succeeded unless `accepted` is true.

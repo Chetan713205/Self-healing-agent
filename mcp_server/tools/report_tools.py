@@ -9,54 +9,44 @@ from fastmcp import FastMCP
 
 from mcp_server.dependencies import reports_dir
 from mcp_server.tools.git_tools import get_recent_changes
-from mcp_server.tools.health_tools import check_api_health
-
-_STATUSES = {"pending_approval", "verified", "escalated"}
+from mcp_server.tools.verify_tools import verify_repair
 
 
 def submit_fix_report(
     diagnosis: str,
     proposed_patch_summary: str,
-    verification_evidence: str,
-    status: str = "pending_approval",
+    verification_evidence: str = "",
+    nodeids: list[str] | None = None,
+    base_url: str | None = None,
 ) -> dict:
-    """Save the diagnosis, proposed patch summary, and verification evidence.
+    """Save the diagnosis and patch summary after this server re-runs verification.
 
-    Writes a Markdown report and a JSON copy under reports/. Git HEAD and the
-    current API health snapshot are collected by this tool. The verification
-    narrative is stored as supplied; run run_full_tests and paste that result
-    before marking a report verified.
+    `verification_evidence` is stored as the agent's notes. It is not the
+    pass/fail verdict. This tool calls `verify_repair`, which runs contract
+    probes, targeted tests, and the full suite. Status is `pending_approval`
+    only when those checks pass. Otherwise the report is `verification_failed`
+    and the returned failures are the evidence for another attempt.
     """
-    normalized = status.strip() or "pending_approval"
-    warning = None
-    if normalized not in _STATUSES:
-        warning = (
-            "Unexpected status. Use pending_approval, verified, or escalated."
-        )
-
+    verification = verify_repair(nodeids, base_url)
+    status = "pending_approval" if verification["accepted"] else "verification_failed"
     generated_at = datetime.now().astimezone().isoformat(timespec="seconds")
     changes = get_recent_changes(limit=1)
-    health = check_api_health()
     latest = (changes.get("recent_commits") or [None])[0]
+    notes = verification_evidence.strip()
 
     payload = {
-        "status": normalized,
-        "status_warning": warning,
+        "status": status,
+        "accepted": verification["accepted"],
         "generated_at": generated_at,
         "diagnosis": diagnosis.strip(),
         "proposed_patch_summary": proposed_patch_summary.strip(),
-        "verification_evidence": verification_evidence.strip(),
+        "agent_notes": notes,
+        "verification": verification,
         "git": {
             "branch": changes.get("branch"),
             "head": changes.get("head"),
             "working_tree_dirty": changes.get("working_tree_dirty"),
             "latest_commit": latest,
-        },
-        "api_health": {
-            "base_url": health.get("base_url"),
-            "reachable": health.get("reachable"),
-            "healthy": health.get("healthy"),
-            "error": health.get("error"),
         },
     }
 
@@ -69,11 +59,13 @@ def submit_fix_report(
 
     return {
         "ok": True,
-        "status": normalized,
-        "status_warning": warning,
+        "accepted": verification["accepted"],
+        "status": status,
+        "summary": verification["summary"],
+        "next_action": verification["next_action"],
         "json_report": str(json_path),
         "markdown_report": str(markdown_path),
-        "api_healthy": health.get("healthy"),
+        "verification": verification,
         "head": changes.get("head"),
     }
 
@@ -96,18 +88,21 @@ def _unique_stem(directory, generated_at: str) -> str:
 def _render_markdown(payload: dict) -> str:
     git_info = payload["git"]
     latest = git_info.get("latest_commit") or {}
-    health = payload["api_health"]
-    warning = payload["status_warning"]
-    warning_line = f"\nStatus warning: {warning}\n" if warning else ""
+    verification = payload["verification"]
+    health = verification["api_health"]
+    full = verification["full_tests"] or {}
+    targeted = verification["targeted_tests"] or {}
+    notes = payload["agent_notes"] or "(none provided)"
     files = ", ".join(latest.get("files") or []) or "(none)"
     return f"""# Fix report
 
 - Status: {payload["status"]}
+- Accepted by MCP verification: {payload["accepted"]}
 - Generated: {payload["generated_at"]}
 - Branch: {git_info.get("branch")}
 - HEAD: {git_info.get("head")}
 - Working tree dirty: {git_info.get("working_tree_dirty")}
-{warning_line}
+
 ## Diagnosis
 
 {payload["diagnosis"] or "(none provided)"}
@@ -116,11 +111,20 @@ def _render_markdown(payload: dict) -> str:
 
 {payload["proposed_patch_summary"] or "(none provided)"}
 
-## Verification evidence
+## Server verification
 
-{payload["verification_evidence"] or "(none provided)"}
+{verification["summary"]}
 
-The verification section is the text supplied by the caller. Accept a repair only when run_full_tests and the contract probes both passed.
+- Contract ok: {verification["contract_ok"]}
+- Targeted ok: {verification["targeted_ok"]} ({targeted.get("passed", 0)} passed, {targeted.get("failed", 0)} failed)
+- Full suite ok: {verification["full_ok"]} ({full.get("passed", 0)} passed, {full.get("failed", 0)} failed)
+- Next action: {verification["next_action"]}
+
+## Agent notes
+
+{notes}
+
+These notes are not the verdict. Accept a repair only when the server verification above says it was accepted, then wait for human approval.
 
 ## API health snapshot
 
