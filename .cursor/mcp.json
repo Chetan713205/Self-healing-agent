@@ -6,6 +6,7 @@
       "args": ["-m", "mcp_server"],
       "env": {
         "PYTHONPATH": "C:\\Users\\KITS\\Desktop\\self-healing-agent",
+        "GUARDIAN_REPO_ROOT": "${workspaceFolder}",
         "PYTHONUNBUFFERED": "1"
       }
     }
