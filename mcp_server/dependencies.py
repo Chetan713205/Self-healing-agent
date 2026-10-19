@@ -32,6 +32,53 @@ def reports_dir() -> Path:
     return path
 
 
+def contracts_dir(root: Path | None = None) -> Path:
+    """Directory of optional JSON schemas whose titles match response models.
+
+    An explicit root always wins, so a probe of a temporary project does not
+    pick up another repository's contracts. GUARDIAN_CONTRACTS_DIR overrides
+    the default `<repo>/contracts` location.
+    """
+    if root is not None:
+        return root / "contracts"
+    override = os.environ.get("GUARDIAN_CONTRACTS_DIR")
+    if override:
+        return Path(override).resolve()
+    return repo_root() / "contracts"
+
+
+def test_suite_targets(root: Path | None = None) -> list[str]:
+    """Pytest paths for this repository.
+
+    GUARDIAN_TEST_PATHS, when set, is an `os.pathsep`-separated list relative
+    to the repository. Otherwise unit and integration directories are used
+    when they exist, then `tests/` or `test/`, then top-level test modules.
+    An empty list means the repository has no suite.
+    """
+    if root is None:
+        override = os.environ.get("GUARDIAN_TEST_PATHS")
+        if override is not None:
+            return [part.strip().replace("\\", "/") for part in override.split(os.pathsep) if part.strip()]
+        project = repo_root()
+    else:
+        project = root
+
+    found = [
+        relative
+        for relative in ("tests/unit", "tests/integration")
+        if (project / relative).is_dir()
+    ]
+    if found:
+        return found
+    for relative in ("tests", "test"):
+        if (project / relative).is_dir():
+            return [relative]
+    has_modules = any(project.glob("test_*.py")) or any(project.glob("*_test.py"))
+    if has_modules:
+        return ["."]
+    return []
+
+
 def truncate(text: str, limit: int = DIFF_CHAR_LIMIT) -> str:
     if len(text) <= limit:
         return text

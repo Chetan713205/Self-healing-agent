@@ -10,7 +10,9 @@ def test_health_check_accepts_the_running_api(healthy_api_url: str) -> None:
     assert report["error"] is None
     assert {check["path"] for check in report["checks"]} == {
         "/health",
+        "/orders",
         "/orders/101",
+        "/invoices",
         "/invoices/INV-101",
         "/reports/revenue",
     }
@@ -18,6 +20,8 @@ def test_health_check_accepts_the_running_api(healthy_api_url: str) -> None:
     assert all(check["valid"] for check in report["checks"])
     order = next(check for check in report["checks"] if check["path"] == "/orders/101")
     assert order["contract"] == "order.json"
+    order_list = next(check for check in report["checks"] if check["path"] == "/orders")
+    assert order_list["contract"] == "order.json"
 
 
 def test_contract_probe_detects_renamed_order_field(broken_api_url: str) -> None:
@@ -27,7 +31,7 @@ def test_contract_probe_detects_renamed_order_field(broken_api_url: str) -> None
     found = {(item["kind"], item["field"]) for item in report["violations"]}
     assert ("missing_field", "total") in found
     assert ("unexpected_field", "amount") in found
-    assert {item["path"] for item in report["violations"]} == {"/orders/101"}
+    assert {item["path"] for item in report["violations"]} == {"/orders", "/orders/101"}
 
 
 def test_health_reports_an_unreachable_api() -> None:

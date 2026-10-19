@@ -22,13 +22,19 @@ def submit_fix_report(
     """Save the diagnosis and patch summary after this server re-runs verification.
 
     `verification_evidence` is stored as the agent's notes. It is not the
-    pass/fail verdict. This tool calls `verify_repair`, which runs contract
-    probes, targeted tests, and the full suite. Status is `pending_approval`
-    only when those checks pass. Otherwise the report is `verification_failed`
-    and the returned failures are the evidence for another attempt.
+    pass/fail verdict. This tool calls `verify_repair`. A verification just
+    completed for the same tree is reused. Status is `pending_approval` only
+    when those checks pass. Status is `escalated` when three attempts have
+    failed and unaccepted changes were restored. Otherwise the report is
+    `verification_failed`.
     """
     verification = verify_repair(nodeids, base_url)
-    status = "pending_approval" if verification["accepted"] else "verification_failed"
+    if verification.get("escalated"):
+        status = "escalated"
+    elif verification["accepted"]:
+        status = "pending_approval"
+    else:
+        status = "verification_failed"
     generated_at = datetime.now().astimezone().isoformat(timespec="seconds")
     changes = get_recent_changes(limit=1)
     latest = (changes.get("recent_commits") or [None])[0]

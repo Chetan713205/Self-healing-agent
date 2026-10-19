@@ -11,6 +11,7 @@ import json
 import re
 from pathlib import Path
 
+from mcp_server.dependencies import contracts_dir, repo_root
 from mcp_server.discover import is_test_file, iter_python_files, module_name
 
 _METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"}
@@ -145,7 +146,7 @@ def _build_index(root: Path) -> _Index:
         relative = path.relative_to(root).as_posix()
         name = module_name(root, path)
         try:
-            tree = ast.parse(path.read_text(encoding="utf-8"))
+            tree = ast.parse(path.read_text(encoding="utf-8-sig"))
         except (OSError, UnicodeError, SyntaxError):
             continue
         parsed.append((relative, name, tree))
@@ -164,14 +165,11 @@ def _build_index(root: Path) -> _Index:
             continue
         index.routes.extend(_routes(relative, name, tree, imported_names, assigned))
 
-    contract_paths = (
-        sorted((root / "contracts").glob("*.json"))
-        if (root / "contracts").is_dir()
-        else []
-    )
+    directory = contracts_dir() if root.resolve() == repo_root().resolve() else root / "contracts"
+    contract_paths = sorted(directory.glob("*.json")) if directory.is_dir() else []
     for path in contract_paths:
         try:
-            schema = json.loads(path.read_text(encoding="utf-8"))
+            schema = json.loads(path.read_text(encoding="utf-8-sig"))
         except (OSError, UnicodeError, json.JSONDecodeError):
             continue
         title = schema.get("title")

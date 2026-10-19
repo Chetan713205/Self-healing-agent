@@ -8,7 +8,10 @@ import httpx
 from fastmcp import FastMCP
 
 from mcp_server.contracts import compare_with_contract, discover_probes
-from mcp_server.dependencies import api_base_url
+from mcp_server.dependencies import api_base_url, repo_root
+from mcp_server.fingerprint import source_token
+from mcp_server.results_cache import get as cache_get
+from mcp_server.results_cache import put as cache_put
 
 _TIMEOUT = httpx.Timeout(5.0, connect=2.0)
 
@@ -16,30 +19,46 @@ _TIMEOUT = httpx.Timeout(5.0, connect=2.0)
 def check_api_health(base_url: str | None = None) -> dict:
     """Call the local API and compare each discovered GET route with its schema.
 
-    Routes come from the FastAPI app in this repository. A JSON file in
-    contracts/ is used when its title matches the response schema. Path
-    parameters are filled from schema examples.
+    Routes come from the FastAPI app in the configured repository, including
+    list routes. Nested ``$ref`` values are resolved against that app's OpenAPI
+    document. A JSON file in the contracts directory is used when its title
+    matches the response schema or, for a list, the item schema. Path
+    parameters are filled from schema examples. One failing route is reported
+    on its own and does not abort the other routes. A repeat call for the same
+    tree and base URL reuses the previous result.
     """
-    return _probe(base_url)
+    url = (base_url or api_base_url()).rstrip("/")
+    key = ("health", str(repo_root()), url, source_token())
+    cached = cache_get(key)
+    if isinstance(cached, dict):
+        return cached
+    report = _probe(url)
+    cache_put(key, report)
+    return report
 
 
 def get_contract_violations(base_url: str | None = None) -> dict:
     """Return missing fields, unexpected fields, type errors, and schema mismatches.
 
-    Uses the same discovered probes as check_api_health and keeps only the failing checks.
+    Uses the same discovered probes as check_api_health, including each item
+    of a list response, and keeps only the failing checks.
     """
-    report = _probe(base_url)
+    return violations_from_health(check_api_health(base_url))
+
+
+def violations_from_health(report: dict) -> dict:
     violations = [
         violation
-        for check in report["checks"]
-        for violation in check["violations"]
+        for check in report.get("checks") or []
+        for violation in check.get("violations") or []
     ]
     return {
-        "base_url": report["base_url"],
-        "reachable": report["reachable"],
+        "base_url": report.get("base_url"),
+        "reachable": report.get("reachable"),
+        "healthy": report.get("healthy"),
         "violation_count": len(violations),
         "violations": violations,
-        "error": report["error"],
+        "error": report.get("error"),
     }
 
 
@@ -48,8 +67,7 @@ def register(mcp: FastMCP) -> None:
     mcp.tool(get_contract_violations)
 
 
-def _probe(base_url: str | None) -> dict:
-    root = (base_url or api_base_url()).rstrip("/")
+def _probe(root: str) -> dict:
     discovered = discover_probes()
     if not discovered["ok"]:
         return {
@@ -75,7 +93,10 @@ def _probe(base_url: str | None) -> dict:
                 "skipped": discovered["skipped"],
                 "error": f"Could not connect to {root}: {exc}",
             }
-        checks.append(_check_response(path, probe, response))
+        try:
+            checks.append(_check_response(path, probe, response))
+        except Exception as exc:
+            checks.append(_route_error(probe, path, exc))
 
     return {
         "base_url": root,
@@ -84,6 +105,27 @@ def _probe(base_url: str | None) -> dict:
         "checks": checks,
         "skipped": discovered["skipped"],
         "error": None,
+    }
+
+
+def _route_error(probe: dict, path: str, exc: Exception) -> dict:
+    contract_name = probe.get("contract")
+    return {
+        "name": probe.get("name"),
+        "path": path,
+        "contract": contract_name,
+        "status_code": None,
+        "valid": False,
+        "violations": [
+            {
+                "path": path,
+                "contract": contract_name,
+                "kind": "schema_mismatch",
+                "field": None,
+                "message": f"Schema validation failed: {exc}",
+            }
+        ],
+        "body": None,
     }
 
 

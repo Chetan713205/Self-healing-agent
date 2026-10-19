@@ -50,6 +50,15 @@ def serve(application):
     thread.join(timeout=5)
 
 
+@pytest.fixture(autouse=True)
+def _clear_guardian_result_cache():
+    from mcp_server.results_cache import clear
+
+    clear()
+    yield
+    clear()
+
+
 @pytest.fixture(scope="module")
 def healthy_api_url():
     yield from serve(sample_app)
@@ -62,9 +71,26 @@ def broken_order_app() -> FastAPI:
     def health() -> dict[str, str]:
         return {"status": "ok"}
 
+    @application.get("/orders")
+    def orders() -> list:
+        return [{"id": 101, "amount": 499.0, "status": "shipped"}]
+
     @application.get("/orders/101")
     def order() -> dict:
         return {"id": 101, "amount": 499.0, "status": "shipped"}
+
+    @application.get("/invoices")
+    def invoices() -> list:
+        return [
+            {
+                "id": "INV-101",
+                "order_id": 101,
+                "amount": 499.0,
+                "tax": 49.9,
+                "total": 548.9,
+                "status": "issued",
+            }
+        ]
 
     @application.get("/invoices/INV-101")
     def invoice() -> dict:

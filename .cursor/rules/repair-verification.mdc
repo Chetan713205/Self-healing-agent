@@ -5,12 +5,14 @@ alwaysApply: true
 
 # Repair verification
 
-Diagnose and check repairs with the `self-healing-guardian` MCP server. Reading the code is not a test result.
+Diagnose and check repairs with the `self-healing-guardian` MCP server. Reading the code is not a test result. The server instructions are the workflow for every repository: list responses are part of the contract, paths come from the guardian settings, and a missing test suite is not itself a failure.
 
 1. Call `check_api_health` and `get_contract_violations`.
 2. Call `get_recent_changes`, then `analyze_impact`.
-3. Propose the smallest edit that restores the contract. The contract is the source of truth.
+3. Propose the smallest edit that restores the contract. The contract is the source of truth, including list responses and their items.
 4. Call `verify_repair` with the `recommended_nodeids` from `analyze_impact`.
 5. Call `submit_fix_report` with the diagnosis and the patch summary. Leave the verdict to that tool.
 
-`accepted: true` and status `pending_approval` mean the server's checks passed and a person still has to approve. Status `verification_failed` means the patch is not fixed; use the returned failures for another attempt. Do not tell the user a repair succeeded unless `accepted` is true.
+There is a maximum of 3 repair attempts. Each failed verification counts as one. After the third failure the server restores the unaccepted Git changes and writes an escalation report. Stop when `escalated` is true or status is `escalated`. Do not keep editing.
+
+`accepted: true` and status `pending_approval` mean the server's checks passed and a person still has to approve. Status `verification_failed` means the patch is not fixed; use the returned failures for another attempt, up to the limit above. Do not tell the user a repair succeeded unless `accepted` is true.

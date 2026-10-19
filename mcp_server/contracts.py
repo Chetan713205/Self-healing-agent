@@ -1,9 +1,9 @@
 """Build API probes from the FastAPI app and compare responses with schemas.
 
-Contract files under contracts/ are optional. A file is used when its schema
-title matches an OpenAPI response schema, so the same rule works in any
-FastAPI project. Projects without that folder are checked against the
-OpenAPI response schemas themselves.
+Contract files under the contracts directory are optional. A file is used when
+its schema title matches an object response or the items of a list response.
+Projects without that folder are checked against the OpenAPI response schemas
+themselves, with local ``$ref`` values inlined from the same document.
 """
 
 from __future__ import annotations
@@ -13,17 +13,12 @@ import re
 from pathlib import Path
 
 from jsonschema import Draft202012Validator
-from jsonschema.exceptions import SchemaError
 
-from mcp_server.dependencies import repo_root
+from mcp_server.dependencies import contracts_dir, repo_root
 from mcp_server.discover import load_fastapi_app
 
 _QUOTED = re.compile(r"'([^']+)'")
 _HTTP_METHODS = {"get", "post", "put", "patch", "delete", "head", "options"}
-
-
-def contracts_dir(root: Path | None = None) -> Path:
-    return (root or repo_root()) / "contracts"
 
 
 def load_contract(name: str, root: Path | None = None) -> dict:
@@ -69,10 +64,14 @@ def build_probes(spec: dict, contracts_by_title: dict[str, dict]) -> tuple[list[
             if method != "get":
                 continue
             schema = _response_schema(spec, operation)
-            parameters = path_params + [
-                parameter
-                for parameter in operation.get("parameters") or []
-                if isinstance(parameter, dict)
+            parameters = [
+                _dereference(parameter, spec)
+                for parameter in path_params
+                + [
+                    parameter
+                    for parameter in operation.get("parameters") or []
+                    if isinstance(parameter, dict)
+                ]
             ]
             operations.append(
                 {
@@ -83,17 +82,13 @@ def build_probes(spec: dict, contracts_by_title: dict[str, dict]) -> tuple[list[
                 }
             )
 
-    object_titles = set()
     prepared = []
     for operation in operations:
-        schema = operation["schema"]
-        object_schema = schema
-        is_array = bool(schema and schema.get("type") == "array")
-        if is_array:
-            object_schema = _resolve(schema.get("items") or {}, spec)
+        schema = operation["schema"] if isinstance(operation["schema"], dict) else {}
+        is_array = schema.get("type") == "array"
+        items = schema.get("items") if is_array else None
+        object_schema = items if isinstance(items, dict) else schema
         title = object_schema.get("title") if isinstance(object_schema, dict) else None
-        if title and not is_array:
-            object_titles.add(title)
         contract = contracts_by_title.get(title) if title else None
         prepared.append(
             {
@@ -108,11 +103,15 @@ def build_probes(spec: dict, contracts_by_title: dict[str, dict]) -> tuple[list[
     probes = []
     skipped = []
     for operation in prepared:
-        if operation["is_array"] and operation["title"] in object_titles:
-            continue
-        validation = operation["schema"] or {}
+        validation = operation["schema"] if isinstance(operation["schema"], dict) else {}
         contract_name = "openapi"
-        if operation["contract"] and not operation["is_array"]:
+        if operation["contract"] and operation["is_array"]:
+            validation = {"type": "array", "items": operation["contract"]["schema"]}
+            for key in ("minItems", "maxItems", "uniqueItems"):
+                if key in (operation["schema"] or {}):
+                    validation[key] = operation["schema"][key]
+            contract_name = operation["contract"]["name"]
+        elif operation["contract"]:
             validation = operation["contract"]["schema"]
             contract_name = operation["contract"]["name"]
         elif operation["title"]:
@@ -155,20 +154,21 @@ def compare_with_contract(
 ) -> list[dict]:
     try:
         validator = Draft202012Validator(schema)
-    except SchemaError as exc:
+        errors = list(validator.iter_errors(payload))
+    except Exception as exc:
         return [
             {
                 "path": path,
                 "contract": contract_name,
                 "kind": "schema_mismatch",
                 "field": None,
-                "message": f"Contract file could not be loaded as a schema: {exc.message}",
+                "message": f"Schema validation failed: {exc}",
             }
         ]
 
     return [
         _classify(error, path=path, contract_name=contract_name)
-        for error in validator.iter_errors(payload)
+        for error in errors
     ]
 
 
@@ -179,7 +179,7 @@ def _contracts_by_title(root: Path) -> dict[str, dict]:
         return found
     for path in sorted(directory.glob("*.json")):
         try:
-            schema = json.loads(path.read_text(encoding="utf-8"))
+            schema = json.loads(path.read_text(encoding="utf-8-sig"))
         except (OSError, UnicodeError, json.JSONDecodeError):
             continue
         title = schema.get("title")
@@ -204,23 +204,67 @@ def _response_schema(spec: dict, operation: dict) -> dict | None:
     schema = json_content.get("schema")
     if not isinstance(schema, dict):
         return None
-    return _resolve(schema, spec)
+    return _dereference(schema, spec)
 
 
-def _resolve(schema: dict, spec: dict, depth: int = 0) -> dict:
-    if depth > 8 or not isinstance(schema, dict):
-        return {}
+def _dereference(schema: object, spec: dict, depth: int = 0, seen: set[str] | None = None) -> object:
+    """Inline local $ref values using the OpenAPI document that owns them."""
+    if depth > 32:
+        return schema
+    if isinstance(schema, list):
+        return [
+            _dereference(item, spec, depth + 1, seen) if isinstance(item, dict) else item
+            for item in schema
+        ]
+    if not isinstance(schema, dict):
+        return schema
+    if seen is None:
+        seen = set()
     ref = schema.get("$ref")
-    if not isinstance(ref, str) or not ref.startswith("#/"):
-        return schema
-    node: object = spec
-    for part in ref[2:].split("/"):
-        if not isinstance(node, dict):
-            return schema
-        node = node.get(part)
-    if not isinstance(node, dict):
-        return schema
-    return _resolve(node, spec, depth + 1)
+    if isinstance(ref, str) and ref.startswith("#/"):
+        if ref in seen:
+            return {"type": "object"}
+        target = _pointer(spec, ref)
+        if not isinstance(target, dict):
+            return {key: value for key, value in schema.items() if key != "$ref"}
+        resolved = _dereference(target, spec, depth + 1, seen | {ref})
+        extras = {key: value for key, value in schema.items() if key != "$ref"}
+        if not extras:
+            return resolved
+        merged = dict(resolved) if isinstance(resolved, dict) else {}
+        for key, value in extras.items():
+            merged[key] = (
+                _dereference(value, spec, depth + 1, seen)
+                if isinstance(value, (dict, list))
+                else value
+            )
+        return merged
+    output: dict = {}
+    for key, value in schema.items():
+        if isinstance(value, (dict, list)):
+            output[key] = _dereference(value, spec, depth + 1, seen)
+        else:
+            output[key] = value
+    return output
+
+
+def _pointer(document: object, ref: str) -> object:
+    node = document
+    for raw in ref[2:].split("/"):
+        part = raw.replace("~1", "/").replace("~0", "~")
+        if isinstance(node, dict):
+            if part not in node:
+                return None
+            node = node[part]
+            continue
+        if isinstance(node, list):
+            try:
+                node = node[int(part)]
+            except (ValueError, IndexError):
+                return None
+            continue
+        return None
+    return node
 
 
 def _fill_path(
@@ -292,7 +336,8 @@ def _format_example(value: object) -> str:
 
 
 def _classify(error, *, path: str, contract_name: str) -> dict:
-    field_path = ".".join(str(part) for part in error.path) or None
+    parts = [str(part) for part in error.path]
+    field_path = ".".join(parts) or None
     kind = "schema_mismatch"
     field = field_path
     if error.validator == "required":
@@ -306,10 +351,13 @@ def _classify(error, *, path: str, contract_name: str) -> dict:
     elif error.validator == "type":
         kind = "incorrect_type"
         field = field_path
+    message = error.message
+    if parts and parts[0].isdigit():
+        message = f"Item {parts[0]}: {message}"
     return {
         "path": path,
         "contract": contract_name,
         "kind": kind,
         "field": field,
-        "message": error.message,
+        "message": message,
     }

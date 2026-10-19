@@ -83,7 +83,10 @@ def _passing_verification() -> dict:
     }
 
 
-def test_verify_repair_accepts_only_when_every_check_passes(monkeypatch, healthy_api_url: str) -> None:
+def test_verify_repair_accepts_only_when_every_check_passes(
+    monkeypatch, tmp_path, healthy_api_url: str
+) -> None:
+    monkeypatch.setenv("GUARDIAN_REPORTS_DIR", str(tmp_path))
     monkeypatch.setattr(
         "mcp_server.tools.verify_tools.run_targeted_tests",
         lambda nodeids: {"ok": True, "all_passed": True, "passed": 1, "failed": 0, "errors": 0, "tests": []},
@@ -102,7 +105,10 @@ def test_verify_repair_accepts_only_when_every_check_passes(monkeypatch, healthy
     assert report["next_action"].startswith("Checks passed")
 
 
-def test_verify_repair_rejects_a_contract_violation(monkeypatch, broken_api_url: str) -> None:
+def test_verify_repair_rejects_a_contract_violation(
+    monkeypatch, tmp_path, broken_api_url: str
+) -> None:
+    monkeypatch.setenv("GUARDIAN_REPORTS_DIR", str(tmp_path))
     monkeypatch.setattr(
         "mcp_server.tools.verify_tools.run_targeted_tests",
         lambda nodeids: {"ok": True, "all_passed": True, "passed": 1, "failed": 0, "errors": 0, "tests": []},

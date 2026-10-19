@@ -15,31 +15,42 @@ from fastmcp import FastMCP
 from mcp_server.tools import git_tools, health_tools, impact_tools, report_tools, test_tools, verify_tools
 
 INSTRUCTIONS = """
-This server is the verification layer for a FastAPI repository.
-Cursor Agent decides what to inspect and how to edit code. These tools
-return evidence from the running API, Git, the import graph, and pytest.
-The agent does not decide whether a patch passed. verify_repair and
-submit_fix_report run the checks and set accepted from those results.
+This server is the verification layer for the FastAPI repository it is pointed at.
+Cursor Agent decides what to inspect and how to edit code. These tools return
+evidence from the running API, Git, the import graph, and pytest. The agent
+does not decide whether a patch passed. verify_repair and submit_fix_report
+run the checks and set accepted from those results.
 
-GET routes are discovered from the FastAPI app. A file in contracts/ is
-applied when its title matches a response schema; otherwise the OpenAPI
-schema is the contract. Restore behavior so responses match that schema.
+Paths are configured with GUARDIAN_REPO_ROOT, GUARDIAN_API_BASE_URL,
+GUARDIAN_CONTRACTS_DIR, GUARDIAN_TEST_PATHS, and GUARDIAN_REPORTS_DIR. A
+repository does not need tests/unit or tests/integration. A missing suite is
+reported and does not by itself fail verification.
 
-Tools, in the order you should use them:
-1. check_api_health — call discovered GET routes and compare them with their schemas.
-2. get_contract_violations — missing fields, unexpected fields, wrong types, schema mismatches.
-3. get_recent_changes — recent commits and the latest diff.
-4. analyze_impact — affected endpoints and tests from imports and route handlers.
-5. run_targeted_tests — run the node ids analyze_impact recommended.
-6. run_full_tests — run the unit and integration suites.
-7. get_failure_evidence — failing tests, contract violations, and the latest change.
-8. verify_repair — contract probes, targeted tests, then the full suite. This sets accepted.
-9. submit_fix_report — save the diagnosis and patch summary. Status comes from verify_repair.
+GET routes are discovered from the FastAPI app, including list routes. Nested
+$ref values are resolved against the full OpenAPI document. One route that
+cannot be validated is reported on its own. A file in the contracts directory
+is applied when its title matches a response schema or a list item schema;
+otherwise the OpenAPI schema is the contract. Restore behavior so responses
+match that schema. Application imports are reloaded after the code changes.
 
-Impact analysis prioritizes tests. It does not prove unrelated code is safe.
-pending_approval means the checks passed and a human must approve.
-verification_failed means use the returned failures for another attempt.
-Do not treat your own reasoning as a passing test.
+Repair workflow:
+1. Call check_api_health and get_contract_violations.
+2. Call get_recent_changes, then analyze_impact.
+3. Propose the smallest edit that restores the contract. The contract is the source of truth.
+4. Call verify_repair with the recommended_nodeids from analyze_impact.
+5. Call submit_fix_report with the diagnosis and the patch summary. Leave the verdict to that tool.
+
+verify_repair reuses a finished check for the same tree and runs the full suite
+only after the contract and targeted tests pass. There is a maximum of 3
+repair attempts. Each new failed verification counts as one attempt. After the
+third failure this server restores the unaccepted Git changes and writes an
+escalation report. Stop when escalated is true or status is escalated. Do not
+keep editing.
+
+accepted true and status pending_approval mean the checks passed and a person
+still has to approve. verification_failed means use the returned failures for
+another attempt, up to the limit above. Do not treat your own reasoning as a
+passing test.
 """.strip()
 
 

@@ -10,11 +10,13 @@ from pathlib import Path
 
 from fastmcp import FastMCP
 
-from mcp_server.dependencies import FAILURE_TEXT_LIMIT, repo_root, truncate
+from mcp_server.dependencies import FAILURE_TEXT_LIMIT, repo_root, test_suite_targets, truncate
+from mcp_server.fingerprint import source_token
+from mcp_server.results_cache import get as cache_get
+from mcp_server.results_cache import put as cache_put
 from mcp_server.tools.git_tools import get_recent_changes
-from mcp_server.tools.health_tools import check_api_health, get_contract_violations
+from mcp_server.tools.health_tools import check_api_health, violations_from_health
 
-_APP_SUITES = ["tests/unit", "tests/integration"]
 _TIMEOUT_SECONDS = 180
 
 
@@ -22,7 +24,8 @@ def run_targeted_tests(nodeids: list[str]) -> dict:
     """Run the given pytest node ids and return structured pass/fail results.
 
     Pass the `recommended_nodeids` from analyze_impact. This does not run the
-    full suite; call run_full_tests before accepting a repair.
+    full suite. A repeat call for the same node ids and the same tree reuses
+    the previous result.
     """
     selected = [nodeid.strip() for nodeid in nodeids if nodeid and nodeid.strip()]
     if not selected:
@@ -30,7 +33,7 @@ def run_targeted_tests(nodeids: list[str]) -> dict:
             "ok": False,
             "error": (
                 "Provide at least one pytest node id. "
-                "Use run_full_tests for the unit and integration suites."
+                "Use run_full_tests for the repository suite."
             ),
             "passed": 0,
             "failed": 0,
@@ -42,8 +45,32 @@ def run_targeted_tests(nodeids: list[str]) -> dict:
 
 
 def run_full_tests() -> dict:
-    """Run the complete unit and integration suites and return structured results."""
-    return _run_pytest(_APP_SUITES)
+    """Run the repository suite and return structured results.
+
+    Uses ``tests/unit`` and ``tests/integration`` when those directories exist.
+    Other layouts are discovered, and ``GUARDIAN_TEST_PATHS`` overrides them.
+    A repository with no tests returns a passing empty result instead of a
+    pytest error. A repeat call for the same tree reuses the previous result.
+    """
+    targets = test_suite_targets()
+    if not targets:
+        return {
+            "ok": True,
+            "error": None,
+            "message": "No test suite was found in this repository.",
+            "command": [],
+            "exit_code": 0,
+            "all_passed": True,
+            "passed": 0,
+            "failed": 0,
+            "errors": 0,
+            "skipped": 0,
+            "tests": [],
+            "suite": [],
+        }
+    report = _run_pytest(targets)
+    report["suite"] = targets
+    return report
 
 
 def get_failure_evidence(
@@ -52,16 +79,18 @@ def get_failure_evidence(
 ) -> dict:
     """Collect contract violations, the latest Git change, and failing tests.
 
-    When node ids are provided, only those tests run. Otherwise the unit and
-    integration suites run. Application evidence is the live probe response,
-    because this sample API does not write a separate log file.
+    When node ids are provided, only those tests run. Otherwise the repository
+    suite runs. The contract report and the health report come from one probe.
+    Application evidence is the live probe response, because this sample API
+    does not write a separate log file.
     """
     if nodeids:
         test_run = run_targeted_tests(nodeids)
     else:
         test_run = run_full_tests()
 
-    violations = get_contract_violations(base_url)
+    health = check_api_health(base_url)
+    violations = violations_from_health(health)
     changes = get_recent_changes(limit=1)
     failures = [
         test
@@ -82,7 +111,7 @@ def get_failure_evidence(
             "error": test_run.get("error"),
         },
         "contract_violations": violations,
-        "api_health": check_api_health(base_url),
+        "api_health": health,
         "recent_change": {
             "branch": changes.get("branch"),
             "head": changes.get("head"),
@@ -100,6 +129,16 @@ def register(mcp: FastMCP) -> None:
 
 
 def _run_pytest(targets: list[str]) -> dict:
+    key = ("pytest", str(repo_root()), tuple(targets), source_token())
+    cached = cache_get(key)
+    if isinstance(cached, dict):
+        return cached
+    report = _run_pytest_uncached(targets)
+    cache_put(key, report)
+    return report
+
+
+def _run_pytest_uncached(targets: list[str]) -> dict:
     with tempfile.TemporaryDirectory(prefix="guardian-pytest-") as directory:
         junit_path = Path(directory) / "junit.xml"
         command = [
@@ -133,12 +172,16 @@ def _run_pytest(targets: list[str]) -> dict:
             }
 
         parsed = _parse_junit(junit_path) if junit_path.exists() else _empty_parse()
+        collected_nothing = completed.returncode == 5
         return {
             "ok": True,
             "error": None,
+            "message": "No tests were collected." if collected_nothing else None,
             "command": command,
             "exit_code": completed.returncode,
-            "all_passed": completed.returncode == 0 and parsed["failed"] == 0 and parsed["errors"] == 0,
+            "all_passed": parsed["failed"] == 0
+            and parsed["errors"] == 0
+            and (completed.returncode == 0 or collected_nothing),
             "stdout_tail": truncate(completed.stdout, FAILURE_TEXT_LIMIT),
             "stderr_tail": truncate(completed.stderr, FAILURE_TEXT_LIMIT),
             **parsed,
