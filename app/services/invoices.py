@@ -14,7 +14,7 @@ def list_invoices() -> list[InvoiceResponse]:
                 order_id=order.id,
                 amount=order.total,
                 tax=tax,
-                total=round(order.total + tax, 2),
+                total=round(order.total, 2),
                 status="issued",
             )
         )
