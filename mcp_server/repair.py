@@ -23,6 +23,17 @@ def escalated_lock() -> dict | None:
     return session
 
 
+def peek_session() -> dict:
+    """Return the current repair session without counting a new attempt."""
+    session = _load()
+    token = source_token()
+    if session and session.get("status") == "escalated" and session.get("locked_token") == token:
+        return session
+    if not session or session.get("status") in {"escalated", "pending_approval"}:
+        return {"attempts": 0, "status": "in_progress"}
+    return session
+
+
 def note_verification(accepted: bool) -> dict:
     """Count one verification of the current tree.
 

@@ -50,15 +50,6 @@ def serve(application):
     thread.join(timeout=5)
 
 
-@pytest.fixture(autouse=True)
-def _clear_guardian_result_cache():
-    from mcp_server.results_cache import clear
-
-    clear()
-    yield
-    clear()
-
-
 @pytest.fixture(scope="module")
 def healthy_api_url():
     yield from serve(sample_app)

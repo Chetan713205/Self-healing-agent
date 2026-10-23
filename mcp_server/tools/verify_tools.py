@@ -4,11 +4,8 @@ from __future__ import annotations
 
 from fastmcp import FastMCP
 
-from mcp_server.dependencies import api_base_url, repo_root
-from mcp_server.fingerprint import source_token
-from mcp_server.repair import MAX_ATTEMPTS, escalated_lock, note_verification, remember
-from mcp_server.results_cache import get as cache_get
-from mcp_server.results_cache import put as cache_put
+from mcp_server.dependencies import api_base_url
+from mcp_server.repair import MAX_ATTEMPTS, escalated_lock, note_verification, peek_session, remember
 from mcp_server.tools.health_tools import get_contract_violations
 from mcp_server.tools.impact_tools import analyze_impact
 from mcp_server.tools.test_tools import run_full_tests, run_targeted_tests
@@ -20,8 +17,9 @@ def verify_repair(nodeids: list[str] | None = None, base_url: str | None = None)
     When `nodeids` is omitted, the node ids come from `analyze_impact`.
     `accepted` is true only when the contract checks pass and every selected
     test run passes. The full suite is not started after an earlier check has
-    already failed. A repeat call for the same tree, base URL, and node ids
-    reuses the previous result.
+    already failed. Every call probes the API and runs the tests again. A result
+    from an unreachable API, or from a process whose schema does not match the
+    source on disk, is not counted as a repair attempt.
 
     Three failed verifications restore unaccepted Git changes and set
     `escalated`. A narrative from the agent is not a result.
@@ -72,17 +70,26 @@ def verify_repair(nodeids: list[str] | None = None, base_url: str | None = None)
         selection = "caller"
 
     url = (base_url or api_base_url()).rstrip("/")
-    key = ("verify", str(repo_root()), url, tuple(selected), source_token())
-    cached = cache_get(key)
-    if isinstance(cached, dict):
-        return cached
-
     result = _verify(selected, selection, url)
+    health = result.get("api_health") or {}
+    if not health.get("reachable") or health.get("stale"):
+        observed = _with_session(result, peek_session())
+        observed["accepted"] = False
+        if health.get("stale"):
+            observed["next_action"] = (
+                "The running API process is stale and does not match the source "
+                "on disk, so this check was not counted as a repair attempt. "
+                "Restart the API and run verification again."
+            )
+        else:
+            observed["next_action"] = (
+                "The API was not reachable, so this check was not counted as a "
+                "repair attempt. Start the API and run verification again."
+            )
+        return observed
     session = note_verification(bool(result["accepted"]))
     result = _with_session(result, session)
     remember(result)
-    if not result.get("escalated"):
-        cache_put(key, result)
     return result
 
 
@@ -98,6 +105,24 @@ _STOP_TEXT = (
 
 def _verify(selected: list[str], selection: str, base_url: str) -> dict:
     violations = get_contract_violations(base_url)
+    if violations.get("stale"):
+        return {
+            "accepted": False,
+            "contract_ok": False,
+            "targeted_ok": False,
+            "full_ok": False,
+            "selection": selection,
+            "nodeids": selected,
+            "summary": "not accepted; stale API process",
+            "contract_violations": _violation_snapshot(violations),
+            "api_health": _health_snapshot(violations),
+            "targeted_tests": None,
+            "full_tests": None,
+            "next_action": (
+                "The running API process is stale and does not match the source "
+                "on disk. Its responses were not accepted."
+            ),
+        }
     contract_ok = bool(
         violations.get("reachable")
         and violations.get("healthy")
@@ -132,18 +157,8 @@ def _verify(selected: list[str], selection: str, base_url: str) -> dict:
         "selection": selection,
         "nodeids": selected,
         "summary": _summary(contract_ok, targeted, full, accepted),
-        "contract_violations": {
-            "reachable": violations.get("reachable"),
-            "violation_count": violations.get("violation_count", 0),
-            "violations": violations.get("violations") or [],
-            "error": violations.get("error"),
-        },
-        "api_health": {
-            "base_url": violations.get("base_url"),
-            "reachable": violations.get("reachable"),
-            "healthy": violations.get("healthy"),
-            "error": violations.get("error"),
-        },
+        "contract_violations": _violation_snapshot(violations),
+        "api_health": _health_snapshot(violations),
         "targeted_tests": _test_snapshot(targeted),
         "full_tests": _test_snapshot(full),
         "next_action": (
@@ -151,6 +166,26 @@ def _verify(selected: list[str], selection: str, base_url: str) -> dict:
             if accepted
             else "Checks failed. Use these failures for another attempt. Do not describe the patch as fixed."
         ),
+    }
+
+
+def _violation_snapshot(violations: dict) -> dict:
+    return {
+        "reachable": violations.get("reachable"),
+        "violation_count": violations.get("violation_count", 0),
+        "violations": violations.get("violations") or [],
+        "stale": bool(violations.get("stale")),
+        "error": violations.get("error"),
+    }
+
+
+def _health_snapshot(violations: dict) -> dict:
+    return {
+        "base_url": violations.get("base_url"),
+        "reachable": violations.get("reachable"),
+        "healthy": violations.get("healthy"),
+        "stale": bool(violations.get("stale")),
+        "error": violations.get("error"),
     }
 
 

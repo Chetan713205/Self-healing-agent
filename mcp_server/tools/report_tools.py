@@ -22,8 +22,8 @@ def submit_fix_report(
     """Save the diagnosis and patch summary after this server re-runs verification.
 
     `verification_evidence` is stored as the agent's notes. It is not the
-    pass/fail verdict. This tool calls `verify_repair`. A verification just
-    completed for the same tree is reused. Status is `pending_approval` only
+    pass/fail verdict. This tool calls `verify_repair`, which probes the API
+    and runs the tests again. Status is `pending_approval` only
     when those checks pass. Status is `escalated` when three attempts have
     failed and unaccepted changes were restored. Otherwise the report is
     `verification_failed`.

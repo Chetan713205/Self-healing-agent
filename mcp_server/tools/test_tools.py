@@ -11,9 +11,6 @@ from pathlib import Path
 from fastmcp import FastMCP
 
 from mcp_server.dependencies import FAILURE_TEXT_LIMIT, repo_root, test_suite_targets, truncate
-from mcp_server.fingerprint import source_token
-from mcp_server.results_cache import get as cache_get
-from mcp_server.results_cache import put as cache_put
 from mcp_server.tools.git_tools import get_recent_changes
 from mcp_server.tools.health_tools import check_api_health, violations_from_health
 
@@ -24,8 +21,7 @@ def run_targeted_tests(nodeids: list[str]) -> dict:
     """Run the given pytest node ids and return structured pass/fail results.
 
     Pass the `recommended_nodeids` from analyze_impact. This does not run the
-    full suite. A repeat call for the same node ids and the same tree reuses
-    the previous result.
+    full suite. Every call runs pytest again.
     """
     selected = [nodeid.strip() for nodeid in nodeids if nodeid and nodeid.strip()]
     if not selected:
@@ -50,7 +46,7 @@ def run_full_tests() -> dict:
     Uses ``tests/unit`` and ``tests/integration`` when those directories exist.
     Other layouts are discovered, and ``GUARDIAN_TEST_PATHS`` overrides them.
     A repository with no tests returns a passing empty result instead of a
-    pytest error. A repeat call for the same tree reuses the previous result.
+    pytest error. Every call runs pytest again.
     """
     targets = test_suite_targets()
     if not targets:
@@ -129,16 +125,6 @@ def register(mcp: FastMCP) -> None:
 
 
 def _run_pytest(targets: list[str]) -> dict:
-    key = ("pytest", str(repo_root()), tuple(targets), source_token())
-    cached = cache_get(key)
-    if isinstance(cached, dict):
-        return cached
-    report = _run_pytest_uncached(targets)
-    cache_put(key, report)
-    return report
-
-
-def _run_pytest_uncached(targets: list[str]) -> dict:
     with tempfile.TemporaryDirectory(prefix="guardian-pytest-") as directory:
         junit_path = Path(directory) / "junit.xml"
         command = [

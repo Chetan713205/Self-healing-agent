@@ -255,7 +255,7 @@ def test_failed_contract_skips_the_full_suite(monkeypatch, tmp_path, broken_api_
     assert "full suite skipped" in report["summary"]
 
 
-def test_repeat_verification_reuses_the_same_run(monkeypatch, tmp_path, healthy_api_url: str) -> None:
+def test_repeat_verification_runs_the_checks_again(monkeypatch, tmp_path, healthy_api_url: str) -> None:
     monkeypatch.setenv("GUARDIAN_REPORTS_DIR", str(tmp_path))
     calls = {"targeted": 0, "full": 0}
 
@@ -277,7 +277,96 @@ def test_repeat_verification_reuses_the_same_run(monkeypatch, tmp_path, healthy_
     assert second["accepted"] is True
     assert first["attempt"] == 1
     assert second["attempt"] == 1
-    assert calls == {"targeted": 1, "full": 1}
+    assert calls == {"targeted": 2, "full": 2}
+
+
+def test_stale_verification_is_not_counted(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("GUARDIAN_REPORTS_DIR", str(tmp_path))
+
+    def violations(base_url=None):
+        return {
+            "base_url": base_url,
+            "reachable": True,
+            "healthy": False,
+            "stale": True,
+            "violation_count": 1,
+            "violations": [
+                {
+                    "path": "/openapi.json",
+                    "contract": "openapi",
+                    "kind": "stale_process",
+                    "field": "InvoiceResponse",
+                    "message": "server has amount; source has amt",
+                }
+            ],
+            "error": "stale",
+        }
+
+    monkeypatch.setattr("mcp_server.tools.verify_tools.get_contract_violations", violations)
+    monkeypatch.setattr(
+        "mcp_server.tools.verify_tools.run_targeted_tests",
+        lambda nodeids: (_ for _ in ()).throw(AssertionError("tests should not run")),
+    )
+
+    report = verify_repair([ORDER_TEST], base_url="http://127.0.0.1:9")
+
+    assert report["accepted"] is False
+    assert report["api_health"]["stale"] is True
+    assert report["attempt"] == 0
+    assert "not counted" in report["next_action"]
+    assert "Restart the API" in report["next_action"]
+
+
+def test_unreachable_verification_is_probed_again_and_not_counted(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("GUARDIAN_REPORTS_DIR", str(tmp_path))
+    calls = {"n": 0}
+
+    def violations(base_url=None):
+        calls["n"] += 1
+        reachable = calls["n"] > 1
+        return {
+            "base_url": base_url,
+            "reachable": reachable,
+            "healthy": reachable,
+            "violation_count": 0,
+            "violations": [],
+            "error": None if reachable else "Could not connect",
+        }
+
+    monkeypatch.setattr("mcp_server.tools.verify_tools.get_contract_violations", violations)
+    monkeypatch.setattr(
+        "mcp_server.tools.verify_tools.run_targeted_tests",
+        lambda nodeids: {
+            "ok": True,
+            "all_passed": True,
+            "passed": 1,
+            "failed": 0,
+            "errors": 0,
+            "tests": [],
+        },
+    )
+    monkeypatch.setattr(
+        "mcp_server.tools.verify_tools.run_full_tests",
+        lambda: {
+            "ok": True,
+            "all_passed": True,
+            "passed": 1,
+            "failed": 0,
+            "errors": 0,
+            "tests": [],
+        },
+    )
+
+    first = verify_repair([ORDER_TEST], base_url="http://127.0.0.1:9")
+    second = verify_repair([ORDER_TEST], base_url="http://127.0.0.1:9")
+
+    assert first["accepted"] is False
+    assert first["api_health"]["reachable"] is False
+    assert first["attempt"] == 0
+    assert "not counted" in first["next_action"]
+    assert second["accepted"] is True
+    assert second["attempt"] == 1
+    assert calls["n"] == 2
 
 
 def test_third_failure_restores_unaccepted_changes(monkeypatch, tmp_path: Path) -> None:

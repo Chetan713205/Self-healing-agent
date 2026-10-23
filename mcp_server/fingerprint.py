@@ -12,8 +12,8 @@ from mcp_server.discover import iter_python_files
 def source_token(root: Path | None = None) -> str:
     """Change whenever application code or contract files change.
 
-    Verification caches are keyed by this token, so an edit invalidates them
-    and an unchanged tree can reuse the last probe or pytest run.
+    Repair sessions use this to recognize the tree that was escalated.
+    Probes and tests do not reuse an earlier result from it.
     """
     project = (root or repo_root()).resolve()
     rows: list[str] = []
@@ -24,6 +24,7 @@ def source_token(root: Path | None = None) -> str:
         if directory.is_dir():
             for path in sorted(directory.glob("*.json")):
                 rows.append(_row("contract", project, path))
+    rows.sort()
     digest = hashlib.sha256("\n".join(rows).encode()).hexdigest()
     return digest
 

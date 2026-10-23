@@ -5,10 +5,10 @@ from __future__ import annotations
 import ast
 import importlib
 import sys
+import threading
 from pathlib import Path
 
-# Token recorded the last time modules for a repo were known to match disk.
-_import_tokens: dict[str, str] = {}
+_load_lock = threading.Lock()
 
 SKIP_DIRS = {
     ".git",
@@ -53,9 +53,15 @@ def load_fastapi_app(root: Path):
     """Import the FastAPI instance declared in this repository.
 
     Prefers `app` in `main.py`. Returns None when the repo has no FastAPI() assignment.
-    Modules under the repository are imported again after those files change, so a
-    later check does not keep validating the process's first copy of the code.
+    Modules under the repository are imported from disk on every call, so a check
+    uses the current source instead of the process's first copy.
+    The import mutates ``sys.path`` and ``sys.modules``, so concurrent callers wait.
     """
+    with _load_lock:
+        return _load_fastapi_app(root)
+
+
+def _load_fastapi_app(root: Path):
     _refresh_repo_modules(root)
     candidates: list[tuple[Path, str]] = []
     for path in iter_python_files(root):
@@ -89,7 +95,6 @@ def load_fastapi_app(root: Path):
         try:
             module = importlib.import_module(name)
         except Exception:
-            _import_tokens.pop(root_text, None)
             _evict_repo_modules(root)
             raise
     finally:
@@ -102,16 +107,9 @@ def load_fastapi_app(root: Path):
 
 
 def _refresh_repo_modules(root: Path) -> None:
-    from mcp_server.fingerprint import source_token
-
-    key = str(root.resolve())
-    token = source_token(root)
-    previous = _import_tokens.get(key)
-    if previous == token:
-        return
-    if previous is not None:
-        _evict_repo_modules(root)
-    _import_tokens[key] = token
+    """Drop this process's copy of the repository so the next import reads disk."""
+    _evict_repo_modules(root)
+    importlib.invalidate_caches()
 
 
 def _evict_repo_modules(root: Path) -> None:
@@ -123,6 +121,12 @@ def _evict_repo_modules(root: Path) -> None:
             continue
         module_path = _module_file(module)
         if module_path is None or not _is_project_file(module_path, resolved):
+            continue
+        try:
+            relative = module_path.resolve().relative_to(resolved)
+        except (OSError, ValueError):
+            continue
+        if relative.parts and relative.parts[0] == "tests":
             continue
         doomed.append(name)
     for name in sorted(doomed, key=len, reverse=True):

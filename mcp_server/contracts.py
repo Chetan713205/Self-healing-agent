@@ -46,8 +46,15 @@ def discover_probes(root: Path | None = None) -> dict:
             "probes": [],
             "skipped": [],
         }
-    probes, skipped = build_probes(application.openapi(), _contracts_by_title(project))
-    return {"ok": True, "error": None, "probes": probes, "skipped": skipped}
+    spec = application.openapi()
+    probes, skipped = build_probes(spec, _contracts_by_title(project))
+    return {
+        "ok": True,
+        "error": None,
+        "probes": probes,
+        "skipped": skipped,
+        "openapi": spec,
+    }
 
 
 def build_probes(spec: dict, contracts_by_title: dict[str, dict]) -> tuple[list[dict], list[dict]]:

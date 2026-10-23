@@ -31,7 +31,10 @@ $ref values are resolved against the full OpenAPI document. One route that
 cannot be validated is reported on its own. A file in the contracts directory
 is applied when its title matches a response schema or a list item schema;
 otherwise the OpenAPI schema is the contract. Restore behavior so responses
-match that schema. Application imports are reloaded after the code changes.
+match that schema. Every check imports the application from the current source.
+A running process whose component schemas differ from that source is stale.
+Its responses are not a passing contract check. Restart the API and probe again.
+That result is not counted as a repair attempt.
 
 Repair workflow:
 1. Call check_api_health and get_contract_violations.
@@ -40,8 +43,9 @@ Repair workflow:
 4. Call verify_repair with the recommended_nodeids from analyze_impact.
 5. Call submit_fix_report with the diagnosis and the patch summary. Leave the verdict to that tool.
 
-verify_repair reuses a finished check for the same tree and runs the full suite
-only after the contract and targeted tests pass. There is a maximum of 3
+verify_repair probes the API and runs the tests on every call. The full suite
+starts only after the contract and targeted tests pass. A health probe that
+could not connect is not counted as a repair attempt. There is a maximum of 3
 repair attempts. Each new failed verification counts as one attempt. After the
 third failure this server restores the unaccepted Git changes and writes an
 escalation report. Stop when escalated is true or status is escalated. Do not
