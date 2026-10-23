@@ -49,6 +49,7 @@ Repair workflow:
 3. Propose the smallest edit that restores the contract. The contract is the source of truth.
 4. Restart the API again, then call verify_repair with the recommended_nodeids from analyze_impact.
 5. Call submit_fix_report with the diagnosis and the patch summary. Leave the verdict to that tool.
+6. When the checkup is finished, stop the API you started. After submit_fix_report returns pending_approval or escalated, and whenever you stop because escalated is true, stop the process listening on the guardian base URL (default http://127.0.0.1:8000) and let that background terminal exit before you end the turn. submit_fix_report still probes the API, so stop only after that call returns. A finished checkup must not leave uvicorn running.
 
 verify_repair probes the API and runs the tests on every call. The full suite
 starts only after the contract and targeted tests pass. A health probe that

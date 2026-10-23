@@ -68,7 +68,7 @@ def submit_fix_report(
         "accepted": verification["accepted"],
         "status": status,
         "summary": verification["summary"],
-        "next_action": verification["next_action"],
+        "next_action": _agent_next_action(status, verification["next_action"]),
         "json_report": str(json_path),
         "markdown_report": str(markdown_path),
         "verification": verification,
@@ -78,6 +78,16 @@ def submit_fix_report(
 
 def register(mcp: FastMCP) -> None:
     mcp.tool(submit_fix_report)
+
+
+def _agent_next_action(status: str, verification_next: str) -> str:
+    if status not in {"pending_approval", "escalated"}:
+        return verification_next
+    return (
+        f"{verification_next} The checkup is finished. Stop the API process "
+        "listening on the guardian base URL (default http://127.0.0.1:8000) "
+        "and let that background terminal exit."
+    )
 
 
 def _unique_stem(directory, generated_at: str) -> str:

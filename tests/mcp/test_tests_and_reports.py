@@ -146,6 +146,8 @@ def test_fix_report_uses_the_server_verdict(monkeypatch, tmp_path) -> None:
     assert result["ok"] is True
     assert result["accepted"] is True
     assert result["status"] == "pending_approval"
+    assert "Stop the API process" in result["next_action"]
+    assert "background terminal" in result["next_action"]
     assert body["diagnosis"].startswith("Order response renamed")
     assert body["agent_notes"] == "I believe this is fixed."
     assert body["verification"]["accepted"] is True
@@ -175,6 +177,7 @@ def test_fix_report_rejects_an_agent_claim_when_checks_fail(monkeypatch, tmp_pat
     body = json.loads(list(tmp_path.glob("*.json"))[0].read_text(encoding="utf-8"))
     assert result["accepted"] is False
     assert result["status"] == "verification_failed"
+    assert result["next_action"] == failed["next_action"]
     assert body["status"] == "verification_failed"
     assert body["agent_notes"].startswith("13 passed")
     assert body["verification"]["accepted"] is False

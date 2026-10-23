@@ -14,6 +14,7 @@ When the user asks for an API checkup, restart the API from the current source b
 3. Propose the smallest edit that restores the contract. The contract is the source of truth, including list responses and their items.
 4. Restart the API again so it loads the edit, then call `verify_repair` with the `recommended_nodeids` from `analyze_impact`.
 5. Call `submit_fix_report` with the diagnosis and the patch summary. Leave the verdict to that tool.
+6. When the checkup is finished, stop the API you started. After `submit_fix_report` returns `pending_approval` or `escalated`, and whenever you stop because `escalated` is true, stop the process listening on the guardian base URL (default `http://127.0.0.1:8000`) and let that background terminal exit before you end the turn. `submit_fix_report` still probes the API, so stop only after that call returns. A finished checkup must not leave uvicorn running.
 
 There is a maximum of 3 repair attempts. Each failed verification counts as one. After the third failure the server restores the unaccepted Git changes and writes an escalation report. Stop when `escalated` is true or status is `escalated`. Do not keep editing.
 
