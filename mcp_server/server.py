@@ -33,14 +33,21 @@ is applied when its title matches a response schema or a list item schema;
 otherwise the OpenAPI schema is the contract. Restore behavior so responses
 match that schema. Every check imports the application from the current source.
 A running process whose component schemas differ from that source is stale.
-Its responses are not a passing contract check. Restart the API and probe again.
-That result is not counted as a repair attempt.
+Its responses are not a passing contract check. That result is not counted as a
+repair attempt.
+
+When the user asks for an API checkup, restart the API from the current source
+before any probe. Stop the process listening on GUARDIAN_API_BASE_URL (default
+http://127.0.0.1:8000), start uvicorn app.main:app on that host and port from
+GUARDIAN_REPO_ROOT, and wait until it is accepting connections. The first probe
+then sees the code on disk and reports the real contract violation. Restart
+again after the edit, before verify_repair.
 
 Repair workflow:
-1. Call check_api_health and get_contract_violations.
+1. Restart the API, then call check_api_health and get_contract_violations.
 2. Call get_recent_changes, then analyze_impact.
 3. Propose the smallest edit that restores the contract. The contract is the source of truth.
-4. Call verify_repair with the recommended_nodeids from analyze_impact.
+4. Restart the API again, then call verify_repair with the recommended_nodeids from analyze_impact.
 5. Call submit_fix_report with the diagnosis and the patch summary. Leave the verdict to that tool.
 
 verify_repair probes the API and runs the tests on every call. The full suite

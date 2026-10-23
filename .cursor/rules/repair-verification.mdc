@@ -7,10 +7,12 @@ alwaysApply: true
 
 Diagnose and check repairs with the `self-healing-guardian` MCP server. Reading the code is not a test result. The server instructions are the workflow for every repository: list responses are part of the contract, paths come from the guardian settings, and a missing test suite is not itself a failure.
 
-1. Call `check_api_health` and `get_contract_violations`.
+When the user asks for an API checkup, restart the API from the current source before any guardian probe. Stop the process listening on the guardian base URL (default `http://127.0.0.1:8000`), start `python -m uvicorn app.main:app --host 127.0.0.1 --port 8000` from the repository root, and wait until it is accepting connections. Then start the workflow. The first probe then sees the code on disk and reports the real contract violation.
+
+1. Restart the API, then call `check_api_health` and `get_contract_violations`.
 2. Call `get_recent_changes`, then `analyze_impact`.
 3. Propose the smallest edit that restores the contract. The contract is the source of truth, including list responses and their items.
-4. Call `verify_repair` with the `recommended_nodeids` from `analyze_impact`.
+4. Restart the API again so it loads the edit, then call `verify_repair` with the `recommended_nodeids` from `analyze_impact`.
 5. Call `submit_fix_report` with the diagnosis and the patch summary. Leave the verdict to that tool.
 
 There is a maximum of 3 repair attempts. Each failed verification counts as one. After the third failure the server restores the unaccepted Git changes and writes an escalation report. Stop when `escalated` is true or status is `escalated`. Do not keep editing.
