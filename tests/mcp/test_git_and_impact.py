@@ -1,4 +1,4 @@
-from mcp_server.tools.git_tools import get_recent_changes
+from mcp_server.tools.git_tools import changed_files_for_impact, get_recent_changes
 from mcp_server.tools.impact_tools import analyze_impact
 
 
@@ -11,6 +11,12 @@ def test_recent_changes_include_head_and_a_diff() -> None:
     assert report["recent_commits"]
     assert report["recent_commits"][0]["sha"] == report["head"]
     assert "diff --git" in report["latest_diff"]
+    assert report["recent_commit_diffs"]
+    assert report["recent_commit_diffs"][0]["sha"] == report["head"]
+    assert report["recent_commit_diffs"][0]["patch"] == report["latest_diff"]
+    assert len(report["recent_commit_diffs"]) == len(report["recent_commits"])
+    for entry in report["recent_commit_diffs"]:
+        assert "diff --git" in entry["patch"] or entry["patch"] == ""
 
 
 def test_order_change_reaches_invoices_and_revenue() -> None:
@@ -59,3 +65,15 @@ def test_unknown_file_is_reported_instead_of_guessed() -> None:
     assert report["unmapped_files"] == ["README.md"]
     assert report["affected_services"] == []
     assert report["recommended_nodeids"] == []
+
+
+def test_clean_tree_impact_uses_recent_commit_files() -> None:
+    detected = changed_files_for_impact(commit_limit=3)
+    changes = get_recent_changes(limit=3)
+
+    assert detected["source"] in {"working_tree", "recent_commits"}
+    if detected["source"] == "recent_commits":
+        expected = set()
+        for commit in changes["recent_commits"]:
+            expected.update(commit["files"])
+        assert set(detected["files"]) == expected

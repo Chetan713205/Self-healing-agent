@@ -15,9 +15,12 @@ def analyze_impact(changed_files: list[str] | None = None) -> dict:
     """Identify endpoints and tests affected by the given files.
 
     When `changed_files` is omitted, the working tree diff is used, and if
-    that is clean the files from the latest commit are used. Relationships
-    come from imports and route handlers in this repository. Impact selection
-    does not replace the full suite.
+    that is clean the files from recent commits (not only HEAD) are used so
+    multi-commit defects stay in scope regardless of commit order.
+    Relationships come from imports and route handlers in this repository. Use
+    `recommended_nodeids` with run_targeted_tests or verify_repair to catch
+    logic regressions that contract probes may miss. Impact selection does
+    not replace the full suite.
     """
     if changed_files:
         source = "explicit_paths"

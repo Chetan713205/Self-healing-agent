@@ -20,8 +20,10 @@ _TIMEOUT_SECONDS = 180
 def run_targeted_tests(nodeids: list[str]) -> dict:
     """Run the given pytest node ids and return structured pass/fail results.
 
-    Pass the `recommended_nodeids` from analyze_impact. This does not run the
-    full suite. Every call runs pytest again.
+    Pass the `recommended_nodeids` from analyze_impact. Use this during
+    diagnosis when contracts look healthy but recent diffs suggest a logic or
+    formula regression. This does not run the full suite. Every call runs
+    pytest again.
     """
     selected = [nodeid.strip() for nodeid in nodeids if nodeid and nodeid.strip()]
     if not selected:
@@ -73,10 +75,12 @@ def get_failure_evidence(
     nodeids: list[str] | None = None,
     base_url: str | None = None,
 ) -> dict:
-    """Collect contract violations, the latest Git change, and failing tests.
+    """Collect contract violations, recent Git changes, and failing tests.
 
-    When node ids are provided, only those tests run. Otherwise the repository
-    suite runs. The contract report and the health report come from one probe.
+    Prefer this when diagnosing non-schema failures: it pairs recent commit
+    patches (not only HEAD) with failing unit or integration assertions. When
+    node ids are provided, only those tests run. Otherwise the repository suite
+    runs. The contract report and the health report come from one probe.
     Application evidence is the live probe response, because this sample API
     does not write a separate log file.
     """
@@ -87,7 +91,7 @@ def get_failure_evidence(
 
     health = check_api_health(base_url)
     violations = violations_from_health(health)
-    changes = get_recent_changes(limit=1)
+    changes = get_recent_changes(limit=5)
     failures = [
         test
         for test in test_run.get("tests", [])
@@ -114,6 +118,7 @@ def get_failure_evidence(
             "latest_commit": latest,
             "working_tree_dirty": changes.get("working_tree_dirty"),
             "latest_diff": changes.get("latest_diff"),
+            "recent_commit_diffs": changes.get("recent_commit_diffs") or [],
         },
     }
 

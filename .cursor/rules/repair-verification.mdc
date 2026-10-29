@@ -1,17 +1,17 @@
 ---
-description: Use the guardian MCP tools to diagnose an API failure and to verify any proposed fix
+description: Use the guardian MCP tools to diagnose API and code failures and to verify any proposed fix
 alwaysApply: true
 ---
 
 # Repair verification
 
-Diagnose and check repairs with the `self-healing-guardian` MCP server. Reading the code is not a test result. The server instructions are the workflow for every repository: list responses are part of the contract, paths come from the guardian settings, and a missing test suite is not itself a failure.
+Diagnose and check repairs with the `self-healing-guardian` MCP server. Reading the code is not a test result. The server instructions are the workflow for every repository: list responses are part of the contract, paths come from the guardian settings, and a missing test suite is not itself a failure. Scope includes contract schema failures and code-level regressions (logic, formulas, missing functions, broken paths) surfaced by recent diffs, impact analysis, and tests. Commit order must not change what is diagnosed: review the full recent commit window before editing.
 
-When the user asks for an API checkup, restart the API from the current source before any guardian probe. Stop the process listening on the guardian base URL (default `http://127.0.0.1:8000`), start `python -m uvicorn app.main:app --host 127.0.0.1 --port 8000` from the repository root, and wait until it is accepting connections. Then start the workflow. The first probe then sees the code on disk and reports the real contract violation.
+When the user asks for an API checkup or repair, restart the API from the current source before any guardian probe. Stop the process listening on the guardian base URL (default `http://127.0.0.1:8000`), start `python -m uvicorn app.main:app --host 127.0.0.1 --port 8000` from the repository root, and wait until it is accepting connections. Then start the workflow. The first probe then sees the code on disk.
 
 1. Restart the API, then call `check_api_health` and `get_contract_violations`.
-2. Call `get_recent_changes`, then `analyze_impact`.
-3. Propose the smallest edit that restores the contract. The contract is the source of truth, including list responses and their items.
+2. Call `get_recent_changes` (with a limit that covers recent related commits), then `analyze_impact`. Before editing, read every entry in `recent_commit_diffs` plus working-tree/staged diffs—not only `latest_diff` or HEAD. Inventory both schema/contract violations and logic or formula regressions from that full window.
+3. Diagnose from the full inventory. Contract shape and business logic are both in scope: restore responses to match the contract (including list items) when shape is wrong, and restore formulas/totals/tax and other logic when diffs or tests show regressions. When both appear across recent commits, fix them together in one smallest coherent patch. If logic risk remains after reading diffs, call `run_targeted_tests` with the `recommended_nodeids` from `analyze_impact` (or `get_failure_evidence`) to confirm—do not wait for a later verify failure to discover a second bug already present in history.
 4. Restart the API again so it loads the edit, then call `verify_repair` with the `recommended_nodeids` from `analyze_impact`.
 5. Call `submit_fix_report` with the diagnosis and the patch summary. Leave the verdict to that tool.
 6. When the checkup is finished, stop the API you started. After `submit_fix_report` returns `pending_approval` or `escalated`, and whenever you stop because `escalated` is true, stop the process listening on the guardian base URL (default `http://127.0.0.1:8000`) and let that background terminal exit before you end the turn. `submit_fix_report` still probes the API, so stop only after that call returns. A finished checkup must not leave uvicorn running.
