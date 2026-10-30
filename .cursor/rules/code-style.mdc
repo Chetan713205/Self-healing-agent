@@ -1,0 +1,11 @@
+---
+description: Modular code and docstrings
+alwaysApply: true
+---
+
+# Code style
+
+- Keep modules small; one concern per file/function.
+- Prefer pure helpers over large mixed functions.
+- Add short docstrings on public functions and classes.
+- Avoid drive-by refactors outside the task.

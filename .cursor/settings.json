@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Shell(python *)",
+      "Shell(pytest *)",
+      "Shell(git status)",
+      "Shell(git diff *)",
+      "Shell(git log *)"
+    ],
+    "deny": [
+      "Shell(git push --force*)",
+      "Shell(git reset --hard*)",
+      "Shell(rm -rf *)",
+      "Shell(Remove-Item -Recurse*)"
+    ]
+  }
+}
