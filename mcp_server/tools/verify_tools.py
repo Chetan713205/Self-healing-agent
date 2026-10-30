@@ -17,13 +17,38 @@ def verify_repair(nodeids: list[str] | None = None, base_url: str | None = None)
     When `nodeids` is omitted, the node ids come from `analyze_impact`.
     `accepted` is true only when the contract checks pass and every selected
     test run passes. The full suite is not started after an earlier check has
-    already failed. Every call probes the API and runs the tests again. A result
-    from an unreachable API, or from a process whose schema does not match the
-    source on disk, is not counted as a repair attempt.
+    already failed. Every call probes the API and runs the tests again.
 
-    Three failed verifications restore unaccepted Git changes and set
-    `escalated`. A narrative from the agent is not a result.
+    This tool is observational: it does not increment the repair attempt budget.
+    Call `submit_fix_report` to re-verify and record an attempt. A narrative
+    from the agent is not a result.
     """
+    return _run_verification(nodeids, base_url)
+
+
+def record_verification_attempt(result: dict) -> dict:
+    """Count one reachable verification toward the attempt budget.
+
+    Used by `submit_fix_report` after it re-runs verification. Stale or
+    unreachable results are left unchanged. Three failed counted attempts
+    restore unaccepted Git changes and set `escalated`.
+    """
+    if result.get("escalated"):
+        return result
+    health = result.get("api_health") or {}
+    if not health.get("reachable") or health.get("stale"):
+        return result
+    session = note_verification(bool(result.get("accepted")))
+    updated = _with_session(result, session, counted=True)
+    remember(updated)
+    return updated
+
+
+def register(mcp: FastMCP) -> None:
+    mcp.tool(verify_repair)
+
+
+def _run_verification(nodeids: list[str] | None, base_url: str | None) -> dict:
     locked = escalated_lock()
     if locked is not None:
         previous = locked.get("last_result")
@@ -55,6 +80,7 @@ def verify_repair(nodeids: list[str] | None = None, base_url: str | None = None)
                 "next_action": _STOP_TEXT,
             },
             locked,
+            counted=True,
         )
 
     if nodeids is None:
@@ -73,7 +99,7 @@ def verify_repair(nodeids: list[str] | None = None, base_url: str | None = None)
     result = _verify(selected, selection, url)
     health = result.get("api_health") or {}
     if not health.get("reachable") or health.get("stale"):
-        observed = _with_session(result, peek_session())
+        observed = _with_session(result, peek_session(), counted=False)
         observed["accepted"] = False
         if health.get("stale"):
             observed["next_action"] = (
@@ -87,14 +113,8 @@ def verify_repair(nodeids: list[str] | None = None, base_url: str | None = None)
                 "repair attempt. Start the API and run verification again."
             )
         return observed
-    session = note_verification(bool(result["accepted"]))
-    result = _with_session(result, session)
-    remember(result)
-    return result
 
-
-def register(mcp: FastMCP) -> None:
-    mcp.tool(verify_repair)
+    return _with_session(result, peek_session(), counted=False)
 
 
 _STOP_TEXT = (
@@ -189,7 +209,7 @@ def _health_snapshot(violations: dict) -> dict:
     }
 
 
-def _with_session(result: dict, session: dict) -> dict:
+def _with_session(result: dict, session: dict, *, counted: bool = True) -> dict:
     attempts = int(session.get("attempts") or 0)
     escalated = session.get("status") == "escalated"
     updated = dict(result)
@@ -206,13 +226,31 @@ def _with_session(result: dict, session: dict) -> dict:
             f"escalated after {attempts} attempts; unaccepted changes restored; "
             f"{result.get('summary')}"
         )
-    else:
+        return updated
+
+    if counted:
         updated["summary"] = f"{result.get('summary')}; attempt {attempts} of {MAX_ATTEMPTS}"
         if not updated["accepted"]:
             updated["next_action"] = (
                 f"Checks failed on attempt {attempts} of {MAX_ATTEMPTS}. "
                 "Use these failures for another attempt. Do not describe the patch as fixed."
             )
+        return updated
+
+    updated["summary"] = (
+        f"{result.get('summary')}; {attempts} of {MAX_ATTEMPTS} attempts recorded"
+    )
+    if updated["accepted"]:
+        updated["next_action"] = (
+            "Checks passed. Call submit_fix_report to record acceptance for "
+            "human approval. Do not merge."
+        )
+    else:
+        updated["next_action"] = (
+            f"Checks failed. {attempts} of {MAX_ATTEMPTS} attempts already recorded. "
+            "Revise the patch, then call submit_fix_report to record the next "
+            "attempt. Do not describe the patch as fixed."
+        )
     return updated
 
 

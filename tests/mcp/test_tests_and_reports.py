@@ -177,7 +177,8 @@ def test_fix_report_rejects_an_agent_claim_when_checks_fail(monkeypatch, tmp_pat
     body = json.loads(list(tmp_path.glob("*.json"))[0].read_text(encoding="utf-8"))
     assert result["accepted"] is False
     assert result["status"] == "verification_failed"
-    assert result["next_action"] == failed["next_action"]
+    assert result["verification"]["attempt"] == 1
+    assert "attempt 1 of 3" in result["next_action"]
     assert body["status"] == "verification_failed"
     assert body["agent_notes"].startswith("13 passed")
     assert body["verification"]["accepted"] is False

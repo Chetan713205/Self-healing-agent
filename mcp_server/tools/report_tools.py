@@ -9,7 +9,7 @@ from fastmcp import FastMCP
 
 from mcp_server.dependencies import reports_dir
 from mcp_server.tools.git_tools import get_recent_changes
-from mcp_server.tools.verify_tools import verify_repair
+from mcp_server.tools.verify_tools import record_verification_attempt, verify_repair
 
 
 def submit_fix_report(
@@ -22,13 +22,13 @@ def submit_fix_report(
     """Save the diagnosis and patch summary after this server re-runs verification.
 
     `verification_evidence` is stored as the agent's notes. It is not the
-    pass/fail verdict. This tool calls `verify_repair`, which probes the API
-    and runs the tests again. Status is `pending_approval` only
-    when those checks pass. Status is `escalated` when three attempts have
-    failed and unaccepted changes were restored. Otherwise the report is
-    `verification_failed`.
+    pass/fail verdict. This tool re-probes the API, runs the tests again, and
+    is the only tool that counts toward the three-attempt budget. Status is
+    `pending_approval` only when those checks pass. Status is `escalated` when
+    three attempts have failed and unaccepted changes were restored. Otherwise
+    the report is `verification_failed`.
     """
-    verification = verify_repair(nodeids, base_url)
+    verification = record_verification_attempt(verify_repair(nodeids, base_url))
     if verification.get("escalated"):
         status = "escalated"
     elif verification["accepted"]:

@@ -9,6 +9,7 @@ from mcp_server.contracts import build_probes, compare_with_contract, discover_p
 from mcp_server.discover import load_fastapi_app
 from mcp_server.tools.health_tools import check_api_health, compare_with_contract as _compare
 from mcp_server.tools.test_tools import run_full_tests
+from mcp_server.tools.report_tools import submit_fix_report
 from mcp_server.tools.verify_tools import verify_repair
 
 ORDER_TEST = "tests/unit/test_services.py::test_order_service_returns_sample_order"
@@ -275,8 +276,9 @@ def test_repeat_verification_runs_the_checks_again(monkeypatch, tmp_path, health
 
     assert first["accepted"] is True
     assert second["accepted"] is True
-    assert first["attempt"] == 1
-    assert second["attempt"] == 1
+    assert first["attempt"] == 0
+    assert second["attempt"] == 0
+    assert "submit_fix_report" in first["next_action"]
     assert calls == {"targeted": 2, "full": 2}
 
 
@@ -365,8 +367,46 @@ def test_unreachable_verification_is_probed_again_and_not_counted(monkeypatch, t
     assert first["attempt"] == 0
     assert "not counted" in first["next_action"]
     assert second["accepted"] is True
-    assert second["attempt"] == 1
+    assert second["attempt"] == 0
     assert calls["n"] == 2
+
+
+def test_verify_then_submit_counts_one_attempt(monkeypatch, tmp_path, healthy_api_url: str) -> None:
+    monkeypatch.setenv("GUARDIAN_REPORTS_DIR", str(tmp_path))
+    monkeypatch.setattr(
+        "mcp_server.tools.verify_tools.get_contract_violations",
+        lambda base_url=None: {
+            "base_url": base_url or healthy_api_url,
+            "reachable": True,
+            "healthy": False,
+            "stale": False,
+            "violation_count": 1,
+            "violations": [
+                {
+                    "path": "/items",
+                    "contract": "item.json",
+                    "kind": "missing_field",
+                    "field": "name",
+                    "message": "name is required",
+                }
+            ],
+            "error": None,
+        },
+    )
+
+    preview = verify_repair([], base_url=healthy_api_url)
+    report = submit_fix_report(
+        diagnosis="contract broken",
+        proposed_patch_summary="restore field",
+        nodeids=[],
+        base_url=healthy_api_url,
+    )
+
+    assert preview["attempt"] == 0
+    assert preview["accepted"] is False
+    assert report["status"] == "verification_failed"
+    assert report["verification"]["attempt"] == 1
+    assert report["verification"]["escalated"] is False
 
 
 def test_third_failure_restores_unaccepted_changes(monkeypatch, tmp_path: Path) -> None:
@@ -404,15 +444,23 @@ def test_third_failure_restores_unaccepted_changes(monkeypatch, tmp_path: Path) 
         tracked.write_text(f"VALUE = 'bad{attempt}'\n", encoding="utf-8")
         if attempt == 3:
             (tmp_path / "scratch.py").write_text("x = 1\n", encoding="utf-8")
-        report = verify_repair([], base_url="http://127.0.0.1:9")
-        assert report["attempt"] == attempt
+        preview = verify_repair([], base_url="http://127.0.0.1:9")
+        assert preview["attempt"] == attempt - 1
+        report = submit_fix_report(
+            diagnosis=f"still broken {attempt}",
+            proposed_patch_summary=f"try {attempt}",
+            nodeids=[],
+            base_url="http://127.0.0.1:9",
+        )
+        assert report["verification"]["attempt"] == attempt
         assert report["accepted"] is False
 
     assert tracked.read_text(encoding="utf-8") == "VALUE = 'base'\n"
     assert not (tmp_path / "scratch.py").exists()
-    assert report["escalated"] is True
-    assert report["rollback"]["ok"] is True
-    assert Path(report["escalation_report"]["markdown_report"]).is_file()
+    assert report["status"] == "escalated"
+    assert report["verification"]["escalated"] is True
+    assert report["verification"]["rollback"]["ok"] is True
+    assert Path(report["verification"]["escalation_report"]["markdown_report"]).is_file()
 
     stopped = verify_repair([], base_url="http://127.0.0.1:9")
     assert stopped["escalated"] is True

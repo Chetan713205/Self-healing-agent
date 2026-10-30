@@ -78,13 +78,14 @@ Repair workflow:
    stop only after that call returns. A finished checkup must not leave
    uvicorn running.
 
-verify_repair probes the API and runs the tests on every call. The full suite
-starts only after the contract and targeted tests pass. A health probe that
-could not connect is not counted as a repair attempt. There is a maximum of 3
-repair attempts. Each new failed verification counts as one attempt. After the
-third failure this server restores the unaccepted Git changes and writes an
-escalation report. Stop when escalated is true or status is escalated. Do not
-keep editing.
+verify_repair probes the API and runs the tests on every call but does not
+count toward the attempt budget. submit_fix_report re-probes and is the only
+tool that records an attempt. The full suite starts only after the contract and
+targeted tests pass. A health probe that could not connect, or a stale API
+process, is not counted. There is a maximum of 3 repair attempts. Each new
+failed submit_fix_report counts as one. After the third failure this server
+restores the unaccepted Git changes and writes an escalation report. Stop when
+escalated is true or status is escalated. Do not keep editing.
 
 accepted true and status pending_approval mean the checks passed and a person
 still has to approve. verification_failed means use the returned failures for

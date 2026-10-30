@@ -16,6 +16,6 @@ When the user asks for an API checkup or repair, restart the API from the curren
 5. Call `submit_fix_report` with the diagnosis and the patch summary. Leave the verdict to that tool.
 6. When the checkup is finished, stop the API you started. After `submit_fix_report` returns `pending_approval` or `escalated`, and whenever you stop because `escalated` is true, stop the process listening on the guardian base URL (default `http://127.0.0.1:8000`) and let that background terminal exit before you end the turn. `submit_fix_report` still probes the API, so stop only after that call returns. A finished checkup must not leave uvicorn running.
 
-There is a maximum of 3 repair attempts. Each failed verification counts as one. After the third failure the server restores the unaccepted Git changes and writes an escalation report. Stop when `escalated` is true or status is `escalated`. Do not keep editing.
+There is a maximum of 3 repair attempts. Only `submit_fix_report` counts an attempt (`verify_repair` is observational). Each failed submit counts as one. After the third failure the server restores the unaccepted Git changes and writes an escalation report. Stop when `escalated` is true or status is `escalated`. Do not keep editing.
 
 `accepted: true` and status `pending_approval` mean the server's checks passed and a person still has to approve. Status `verification_failed` means the patch is not fixed; use the returned failures for another attempt, up to the limit above. Do not tell the user a repair succeeded unless `accepted` is true.
